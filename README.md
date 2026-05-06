@@ -84,6 +84,8 @@ Public key parsing helpers:
 - `cvc_parse_pubkey_template`
 - `cvc_extract_pubkey`
 - `cvc_extract_ec_point`
+- `cvc_extension_find_by_oid`
+- `cvc_oid_from_dotted_string`
 
 ### 2) Builder layer (stateless)
 
@@ -129,6 +131,31 @@ cvc_write_set_strict_profile(&w, true);
 
 if (cvc_write_cert_der(&w, out, sizeof(out), &out_len, f_rng, p_rng) != 0) {
     /* handle error */
+}
+```
+
+## Extension parser example
+
+```c
+const uint8_t *ext_payload = NULL;
+uint16_t ext_payload_len = 0;
+uint8_t oid_der[32];
+uint16_t oid_der_len = 0;
+
+if (cvc_oid_from_dotted_string("1.3.6.1.4.1.55555.1.1",
+                               oid_der,
+                               sizeof(oid_der),
+                               &oid_der_len) != LIBCVC_OK) {
+    /* invalid OID */
+}
+
+if (cvc_extension_find_by_oid(cert,
+                              cert_len,
+                              oid_der,
+                              oid_der_len,
+                              &ext_payload,
+                              &ext_payload_len) == LIBCVC_OK) {
+    /* ext_payload points to DDT payload after OID TLV */
 }
 ```
 
@@ -189,7 +216,7 @@ Most writer/sign/parse helpers return symbolic status codes:
 - configurable time callback for issuance-time checks
 - optional role-policy module for CVCA/DV/Terminal constraints
 - extended test vectors for all key families and profile combinations
-- decouple workspace-specific mbedTLS include path in CMake
+- optional decode helpers for common extension payload schemas
 
 ## License
 
