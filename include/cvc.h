@@ -144,6 +144,24 @@ int cvc_sign_data_mbedtls_pk(const mbedtls_pk_context *pk,
                              uint8_t *sig, size_t sig_cap, size_t *sig_len,
                              int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);
 
+/* Verify certificate inner signature over encoded certificate body TLV. */
+int cvc_verify_cert_signature(const uint8_t *cert,
+                              uint16_t cert_len,
+                              const mbedtls_pk_context *signer_pk,
+                              mbedtls_md_type_t md_alg);
+
+/* Verify request signatures:
+ * - inner signature: cert body signed by inner_pk
+ * - outer signature (optional): signature over encoded cert TLV || encoded CAR TLV by outer_pk
+ * If require_outer is true, missing outer signature is an error.
+ */
+int cvc_verify_request_signatures(const uint8_t *req,
+                                  uint16_t req_len,
+                                  const mbedtls_pk_context *inner_pk,
+                                  const mbedtls_pk_context *outer_pk,
+                                  mbedtls_md_type_t md_alg,
+                                  bool require_outer);
+
 /* High-level helpers that enforce TR-03110 profile structures. */
 int cvc_build_and_sign_cert(const cvc_cert_meta_t *meta,
                             const mbedtls_pk_context *subject_pk,
