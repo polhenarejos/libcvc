@@ -97,6 +97,22 @@ int cvc_extract_pubkey(const uint8_t *cert, uint16_t cert_len, cvc_pubkey_t *out
  */
 int cvc_extract_ec_point(const uint8_t *cert, uint16_t cert_len, uint8_t *out, uint16_t out_cap, uint16_t *out_len, bool prefer_compressed);
 
+/* Parse extensions (0x65) and find a DDT (0x73) by OID (0x06).
+ * On success, ext_data/ext_data_len point to the extension payload after OID TLV.
+ */
+int cvc_extension_find_by_oid(const uint8_t *cert,
+                              uint16_t cert_len,
+                              const uint8_t *oid_der,
+                              uint16_t oid_der_len,
+                              const uint8_t **ext_data,
+                              uint16_t *ext_data_len);
+
+/* Convert dotted OID string (e.g. \"1.3.6.1.4.1\") to DER bytes. */
+int cvc_oid_from_dotted_string(const char *oid_str,
+                               uint8_t *out,
+                               uint16_t out_cap,
+                               uint16_t *out_len);
+
 /* Build 0x7F49 public key template from mbedtls key context.
  * alg_oid is copied into tag 0x06.
  * Returns total bytes written, 0 on error/insufficient buffer.
