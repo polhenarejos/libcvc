@@ -16,11 +16,34 @@
  */
 
 #include "cvc.h"
+#include "cvc_oids.h"
 #include "cvc_tags.h"
 #include "cvc_tlv.h"
 
 #include <string.h>
 #include <stdlib.h>
+
+static int cvc_oid_starts_with(const uint8_t *oid,
+                               uint16_t oid_len,
+                               const uint8_t *prefix,
+                               uint16_t prefix_len) {
+    if (!oid || !prefix || oid_len < prefix_len) {
+        return 0;
+    }
+    return memcmp(oid, prefix, prefix_len) == 0;
+}
+
+static int cvc_oid_is_ta_rsa(const uint8_t *oid, uint16_t oid_len) {
+    return cvc_oid_starts_with(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA, OID_ID_TA_RSA_LEN);
+}
+
+static int cvc_oid_is_ta_ecdsa(const uint8_t *oid, uint16_t oid_len) {
+    return cvc_oid_starts_with(oid, oid_len, (const uint8_t *)OID_ID_TA_ECDSA, OID_ID_TA_ECDSA_LEN);
+}
+
+static int cvc_oid_is_ri_ecdh(const uint8_t *oid, uint16_t oid_len) {
+    return cvc_oid_starts_with(oid, oid_len, (const uint8_t *)OID_ID_RI_ECDH, OID_ID_RI_ECDH_LEN);
+}
 
 const uint8_t *cvc_get_field(const uint8_t *data, uint16_t len, uint16_t *olen, uint16_t tag) {
     if (olen) *olen = 0;
@@ -93,18 +116,35 @@ int cvc_parse_pubkey_template(const uint8_t *pub_tmpl, uint16_t pub_tmpl_len, cv
     t82 = cvc_get_field(pub_tmpl, pub_tmpl_len, &t82_len, CVC_TAG_RSA_E);
     t83 = cvc_get_field(pub_tmpl, pub_tmpl_len, &t83_len, CVC_TAG_EC_B);
     t84 = cvc_get_field(pub_tmpl, pub_tmpl_len, &t84_len, CVC_TAG_EC_G);
-    if (t86 && t86_len) {
-        out->kind = CVC_KEY_KIND_EC; out->q = t86; out->q_len = t86_len; return LIBCVC_OK;
+
+    if (cvc_oid_is_ta_rsa(oid, oid_len)) {
+        if (t81 && t81_len && t82 && t82_len) {
+            out->kind = CVC_KEY_KIND_RSA;
+            out->n = t81;
+            out->n_len = t81_len;
+            out->e = t82;
+            out->e_len = t82_len;
+            return LIBCVC_OK;
+        }
+        return LIBCVC_ERR_FORMAT;
     }
-    if (t81 && t81_len && t82 && t82_len && t83 && t83_len && t84 && t84_len) {
-        out->kind = CVC_KEY_KIND_EC;
-        out->q = t84;
-        out->q_len = t84_len;
-        return LIBCVC_OK;
+
+    if (cvc_oid_is_ta_ecdsa(oid, oid_len) || cvc_oid_is_ri_ecdh(oid, oid_len)) {
+        if (t86 && t86_len) {
+            out->kind = CVC_KEY_KIND_EC;
+            out->q = t86;
+            out->q_len = t86_len;
+            return LIBCVC_OK;
+        }
+        if (t81 && t81_len && t82 && t82_len && t83 && t83_len && t84 && t84_len) {
+            out->kind = CVC_KEY_KIND_EC;
+            out->q = t84;
+            out->q_len = t84_len;
+            return LIBCVC_OK;
+        }
+        return LIBCVC_ERR_FORMAT;
     }
-    if (t81 && t81_len && t82 && t82_len) {
-        out->kind = CVC_KEY_KIND_RSA; out->n = t81; out->n_len = t81_len; out->e = t82; out->e_len = t82_len; return LIBCVC_OK;
-    }
+
     out->kind = CVC_KEY_KIND_UNKNOWN;
     return LIBCVC_ERR_UNSUPPORTED;
 }
