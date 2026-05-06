@@ -44,23 +44,23 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
         size_t e_len_sz = 0;
         uint16_t n_len = 0;
         uint16_t e_len = 0;
-        unsigned char n_buf[MBEDTLS_MPI_MAX_SIZE];
-        unsigned char e_buf[MBEDTLS_MPI_MAX_SIZE];
+        mbedtls_mpi n;
+        mbedtls_mpi e;
 
-        if (mbedtls_rsa_export_raw(rsa, n_buf, sizeof(n_buf), NULL, 0, NULL, 0, NULL, 0, e_buf, sizeof(e_buf)) != 0) {
+        mbedtls_mpi_init(&n);
+        mbedtls_mpi_init(&e);
+
+        if (mbedtls_rsa_export((mbedtls_rsa_context *)rsa, &n, NULL, NULL, NULL, &e) != 0) {
+            mbedtls_mpi_free(&n);
+            mbedtls_mpi_free(&e);
             return 0;
         }
 
-        while (n_len_sz < sizeof(n_buf) && n_buf[n_len_sz] == 0) {
-            n_len_sz++;
-        }
-        while (e_len_sz < sizeof(e_buf) && e_buf[e_len_sz] == 0) {
-            e_len_sz++;
-        }
-
-        n_len_sz = sizeof(n_buf) - n_len_sz;
-        e_len_sz = sizeof(e_buf) - e_len_sz;
+        n_len_sz = mbedtls_mpi_size(&n);
+        e_len_sz = mbedtls_mpi_size(&e);
         if (!n_len_sz || !e_len_sz || n_len_sz > UINT16_MAX || e_len_sz > UINT16_MAX) {
+            mbedtls_mpi_free(&n);
+            mbedtls_mpi_free(&e);
             return 0;
         }
 
@@ -70,9 +70,13 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
         total_len = cvc_tlv_len_tag(CVC_TAG_PUBKEY, data_len);
 
         if (!out || !out_cap) {
+            mbedtls_mpi_free(&n);
+            mbedtls_mpi_free(&e);
             return total_len;
         }
         if (out_cap < total_len) {
+            mbedtls_mpi_free(&n);
+            mbedtls_mpi_free(&e);
             return 0;
         }
 
@@ -86,14 +90,24 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
 
         p += cvc_tlv_write_tag(CVC_TAG_RSA_N, p);
         p += cvc_tlv_write_len(n_len, p);
-        memcpy(p, n_buf + sizeof(n_buf) - n_len, n_len);
+        if (mbedtls_mpi_write_binary(&n, p, n_len) != 0) {
+            mbedtls_mpi_free(&n);
+            mbedtls_mpi_free(&e);
+            return 0;
+        }
         p += n_len;
 
         p += cvc_tlv_write_tag(CVC_TAG_RSA_E, p);
         p += cvc_tlv_write_len(e_len, p);
-        memcpy(p, e_buf + sizeof(e_buf) - e_len, e_len);
+        if (mbedtls_mpi_write_binary(&e, p, e_len) != 0) {
+            mbedtls_mpi_free(&n);
+            mbedtls_mpi_free(&e);
+            return 0;
+        }
         p += e_len;
 
+        mbedtls_mpi_free(&n);
+        mbedtls_mpi_free(&e);
         return (uint16_t)(p - out);
     }
 
@@ -531,4 +545,3 @@ uint16_t cvc_build_request(const uint8_t *cert,
 
     return (uint16_t)(p - out);
 }
-
