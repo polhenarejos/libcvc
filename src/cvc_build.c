@@ -23,6 +23,19 @@
 #include "mbedtls/rsa.h"
 #include "mbedtls/ecp.h"
 
+static int cvc_curve_has_a_minus_3(mbedtls_ecp_group_id gid) {
+    switch (gid) {
+        case MBEDTLS_ECP_DP_SECP192R1:
+        case MBEDTLS_ECP_DP_SECP224R1:
+        case MBEDTLS_ECP_DP_SECP256R1:
+        case MBEDTLS_ECP_DP_SECP384R1:
+        case MBEDTLS_ECP_DP_SECP521R1:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
                                       const uint8_t *alg_oid, uint16_t alg_oid_len,
                                       bool include_ec_domain_parameters,
@@ -178,6 +191,7 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
         }
 
         if (include_ec_domain_parameters && ctype == MBEDTLS_ECP_TYPE_SHORT_WEIERSTRASS) {
+            size_t field_len = (grp.pbits + 7u) / 8u;
             p_len = mbedtls_mpi_size(&grp.P);
             a_len = mbedtls_mpi_size(&grp.A);
             b_len = mbedtls_mpi_size(&grp.B);
@@ -190,13 +204,24 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
                 return 0;
             }
 
+            /* Keep domain parameters width-consistent within the selected curve. */
+            if (field_len > 0) {
+                p_len = field_len;
+                a_len = field_len;
+                b_len = field_len;
+                if (r_len < field_len) {
+                    r_len = field_len;
+                }
+            }
+
             data_len = (uint16_t)(data_len
                 + cvc_tlv_len_tag(CVC_TAG_EC_P, (uint16_t)p_len)
-                + cvc_tlv_len_tag(CVC_TAG_EC_A, (uint16_t)(a_len ? a_len : 1))
+                + cvc_tlv_len_tag(CVC_TAG_EC_A, (uint16_t)a_len)
                 + cvc_tlv_len_tag(CVC_TAG_EC_B, (uint16_t)b_len)
                 + cvc_tlv_len_tag(CVC_TAG_EC_G, (uint16_t)g_len)
                 + cvc_tlv_len_tag(CVC_TAG_EC_R, (uint16_t)r_len)
                 + cvc_tlv_len_tag(CVC_TAG_EC_F, (uint16_t)f_len));
+
         }
 
         total_len = cvc_tlv_len_tag(CVC_TAG_PUBKEY, data_len);
@@ -231,18 +256,44 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
             p += p_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_A, p);
-            if (a_len) {
-                p += cvc_tlv_write_len((uint16_t)a_len, p);
-                if (mbedtls_mpi_write_binary(&grp.A, p, a_len) != 0) {
+            p += cvc_tlv_write_len((uint16_t)a_len, p);
+            {
+                mbedtls_mpi a_mod_p;
+                mbedtls_mpi_init(&a_mod_p);
+                if (mbedtls_mpi_mod_mpi(&a_mod_p, &grp.A, &grp.P) != 0) {
+                    mbedtls_mpi_free(&a_mod_p);
                     mbedtls_ecp_group_free(&grp);
                     mbedtls_ecp_point_free(&q);
                     return 0;
                 }
-                p += a_len;
-            } else {
-                p += cvc_tlv_write_len(1, p);
-                *p++ = 0;
+                if (mbedtls_mpi_cmp_int(&a_mod_p, 0) < 0) {
+                    if (mbedtls_mpi_add_mpi(&a_mod_p, &a_mod_p, &grp.P) != 0) {
+                        mbedtls_mpi_free(&a_mod_p);
+                        mbedtls_ecp_group_free(&grp);
+                        mbedtls_ecp_point_free(&q);
+                        return 0;
+                    }
+                }
+                /* Some mbedTLS builds expose A=0 for NIST Weierstrass curves with A=-3. */
+                if (mbedtls_mpi_cmp_int(&a_mod_p, 0) == 0 &&
+                    cvc_curve_has_a_minus_3(grp.id)) {
+                    if (mbedtls_mpi_copy(&a_mod_p, &grp.P) != 0 ||
+                        mbedtls_mpi_sub_int(&a_mod_p, &a_mod_p, 3) != 0) {
+                        mbedtls_mpi_free(&a_mod_p);
+                        mbedtls_ecp_group_free(&grp);
+                        mbedtls_ecp_point_free(&q);
+                        return 0;
+                    }
+                }
+                if (mbedtls_mpi_write_binary(&a_mod_p, p, a_len) != 0) {
+                    mbedtls_mpi_free(&a_mod_p);
+                    mbedtls_ecp_group_free(&grp);
+                    mbedtls_ecp_point_free(&q);
+                    return 0;
+                }
+                mbedtls_mpi_free(&a_mod_p);
             }
+            p += a_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_B, p);
             p += cvc_tlv_write_len((uint16_t)b_len, p);
@@ -272,10 +323,6 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
             }
             p += r_len;
 
-            p += cvc_tlv_write_tag(CVC_TAG_EC_F, p);
-            p += cvc_tlv_write_len((uint16_t)f_len, p);
-            memcpy(p, f_buf, f_len);
-            p += f_len;
             p += cvc_tlv_write_tag(CVC_TAG_EC_POINT, p);
             p += cvc_tlv_write_len((uint16_t)q_len, p);
             if (mbedtls_ecp_point_write_binary(&grp, &q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, q_len) != 0 ||
@@ -285,6 +332,11 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
                 return 0;
             }
             p += q_len;
+
+            p += cvc_tlv_write_tag(CVC_TAG_EC_F, p);
+            p += cvc_tlv_write_len((uint16_t)f_len, p);
+            memcpy(p, f_buf, f_len);
+            p += f_len;
         }
         else if (ctype == MBEDTLS_ECP_TYPE_SHORT_WEIERSTRASS) {
             p += cvc_tlv_write_tag(CVC_TAG_EC_POINT, p);
