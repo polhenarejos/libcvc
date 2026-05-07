@@ -50,6 +50,26 @@ cmake --build ../libcvc/build
 
 This builds target `cvc` and static library `libcvc.a` (toolchain-dependent naming).
 
+### Build + tests
+
+`libcvc` now includes a CTest target (`libcvc_tests`) with:
+- basic unit checks (OID parsing)
+- OpenPACE-based regression vectors: certificate body reconstruction must match byte-for-byte for copied CVCA/DVCA/TERM vectors (signature excluded by design)
+
+Run:
+
+```bash
+cmake -S ../libcvc -B ../libcvc/build -DLIBCVC_BUILD_TESTS=ON
+cmake --build ../libcvc/build
+ctest --test-dir ../libcvc/build --output-on-failure
+```
+
+If your mbedTLS is not exposed as CMake targets/libraries in default linker paths, set:
+
+```bash
+-DMBEDTLS_LIBRARIES="/path/to/libmbedtls.a;/path/to/libmbedx509.a;/path/to/libmbedcrypto.a"
+```
+
 ### As a dependency from another project
 
 ```cmake
