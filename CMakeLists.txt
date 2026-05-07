@@ -20,7 +20,7 @@ cmake_minimum_required(VERSION 3.13)
 project(libcvc C)
 
 option(LIBCVC_USE_FIND_PACKAGE_MBEDTLS "Use find_package(MbedTLS/mbedtls) first" ON)
-option(LIBCVC_BUILD_TESTS "Build libcvc tests" ON)
+option(LIBCVC_BUILD_TESTS "Build libcvc tests" OFF)
 set(MBEDTLS_INCLUDE_DIR "" CACHE PATH "Path to mbedTLS include directory (contains mbedtls/pk.h)")
 set(_libcvc_test_mbedtls_libs "")
 
