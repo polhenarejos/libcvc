@@ -247,6 +247,31 @@ static int test_openpace_signature_verify(void) {
     return 0;
 }
 
+static int test_build_cert_rejects_body_value_only(void) {
+    uint8_t *cert = NULL;
+    size_t cert_len_sz = 0;
+    const uint8_t *body_value = NULL;
+    uint16_t body_value_len = 0;
+    const uint8_t *sig = NULL;
+    uint16_t sig_len = 0;
+    uint8_t out[2048];
+    uint16_t out_len = 0;
+
+    ASSERT_EQ_INT(read_file(LIBCVC_TEST_VECTORS_DIR "/ZZATCVCA00001.cvcert", &cert, &cert_len_sz), 0);
+    ASSERT_TRUE(cert_len_sz <= 0xFFFFu);
+
+    body_value = cvc_get_body(cert, (uint16_t)cert_len_sz, &body_value_len); /* value, not full 7F4E TLV */
+    sig = cvc_get_sig(cert, (uint16_t)cert_len_sz, &sig_len);
+    ASSERT_TRUE(body_value != NULL && body_value_len > 0);
+    ASSERT_TRUE(sig != NULL && sig_len > 0);
+
+    out_len = cvc_build_cert(body_value, body_value_len, sig, sig_len, out, sizeof(out));
+    ASSERT_EQ_INT(out_len, 0);
+
+    free(cert);
+    return 0;
+}
+
 int main(void) {
     if (run_test("oid_parse", test_oid_parse) != 0) {
         return 1;
@@ -261,6 +286,9 @@ int main(void) {
         return 1;
     }
     if (run_test("openpace_signature_verify", test_openpace_signature_verify) != 0) {
+        return 1;
+    }
+    if (run_test("build_cert_rejects_body_value_only", test_build_cert_rejects_body_value_only) != 0) {
         return 1;
     }
 

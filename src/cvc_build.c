@@ -507,12 +507,18 @@ uint16_t cvc_build_cert(const uint8_t *body,
                         uint16_t sig_len,
                         uint8_t *out,
                         uint16_t out_cap) {
+    cvc_tlv_hdr_t body_hdr;
     uint16_t sig_tlv = 0;
     uint16_t data_len = 0;
     uint16_t total_len = 0;
     uint8_t *p = out;
 
     if (!body || !body_len || !sig || !sig_len) {
+        return 0;
+    }
+    if (cvc_tlv_parse_header(body, body_len, &body_hdr) != LIBCVC_OK ||
+        body_hdr.tag != CVC_TAG_CERT_BODY ||
+        (uint16_t)(body_hdr.hdr_len + body_hdr.value_len) != body_len) {
         return 0;
     }
 
