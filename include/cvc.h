@@ -92,7 +92,8 @@ int cvc_parse_pubkey_template(const uint8_t *pub_tmpl, uint16_t pub_tmpl_len, cv
 /* Extract public key template from cert/request and classify it. */
 int cvc_extract_pubkey(const uint8_t *cert, uint16_t cert_len, cvc_pubkey_t *out);
 
-/* Extract EC point (tag 0x86) and optionally compress if uncompressed SEC1 is provided.
+/* Extract EC public key bytes (typically tag 0x86, RI ECDH may use 0x84)
+ * and optionally compress if uncompressed SEC1 is provided.
  * Returns 0 on success.
  */
 int cvc_extract_ec_point(const uint8_t *cert, uint16_t cert_len, uint8_t *out, uint16_t out_cap, uint16_t *out_len, bool prefer_compressed);

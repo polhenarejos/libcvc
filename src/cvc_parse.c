@@ -129,7 +129,7 @@ int cvc_parse_pubkey_template(const uint8_t *pub_tmpl, uint16_t pub_tmpl_len, cv
         return LIBCVC_ERR_FORMAT;
     }
 
-    if (cvc_oid_is_ta_ecdsa(oid, oid_len) || cvc_oid_is_ri_ecdh(oid, oid_len)) {
+    if (cvc_oid_is_ta_ecdsa(oid, oid_len)) {
         if (t86 && t86_len) {
             out->kind = CVC_KEY_KIND_EC;
             out->q = t86;
@@ -140,6 +140,22 @@ int cvc_parse_pubkey_template(const uint8_t *pub_tmpl, uint16_t pub_tmpl_len, cv
             out->kind = CVC_KEY_KIND_EC;
             out->q = t84;
             out->q_len = t84_len;
+            return LIBCVC_OK;
+        }
+        return LIBCVC_ERR_FORMAT;
+    }
+
+    if (cvc_oid_is_ri_ecdh(oid, oid_len)) {
+        if (t84 && t84_len) {
+            out->kind = CVC_KEY_KIND_EC;
+            out->q = t84;
+            out->q_len = t84_len;
+            return LIBCVC_OK;
+        }
+        if (t86 && t86_len) {
+            out->kind = CVC_KEY_KIND_EC;
+            out->q = t86;
+            out->q_len = t86_len;
             return LIBCVC_OK;
         }
         return LIBCVC_ERR_FORMAT;
