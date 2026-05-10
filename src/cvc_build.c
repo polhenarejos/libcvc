@@ -379,7 +379,8 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_G, p);
             p += cvc_tlv_write_len((uint16_t)dh_y_len, p);
-            if (mbedtls_mpi_write_binary(&q.MBEDTLS_PRIVATE(X), p, dh_y_len) != 0) {
+            if (mbedtls_ecp_point_write_binary(&grp, &q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, dh_y_len) != 0 ||
+                written_len != dh_y_len) {
                 mbedtls_ecp_group_free(&grp);
                 mbedtls_ecp_point_free(&q);
                 return 0;
