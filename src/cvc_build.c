@@ -168,10 +168,11 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
                  || ctype == MBEDTLS_ECP_TYPE_EDWARDS
 #endif
                  ) {
-            p_len = mbedtls_mpi_size(&grp.P);
-            dh_q_len = mbedtls_mpi_size(&grp.N);
-            dh_g_len = mbedtls_mpi_size(&grp.G.MBEDTLS_PRIVATE(X));
-            dh_y_len = mbedtls_mpi_size(&q.MBEDTLS_PRIVATE(X));
+            size_t coord_len = (grp.pbits + 7) / 8;
+            p_len = coord_len;
+            dh_q_len = (grp.nbits + 7) / 8;
+            dh_g_len = coord_len;
+            dh_y_len = coord_len;
             if (p_len == 0 || dh_q_len == 0 || dh_g_len == 0 || dh_y_len == 0 ||
                 p_len > UINT16_MAX || dh_q_len > UINT16_MAX || dh_g_len > UINT16_MAX || dh_y_len > UINT16_MAX) {
                 mbedtls_ecp_group_free(&grp);
