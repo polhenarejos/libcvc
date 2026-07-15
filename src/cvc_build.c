@@ -128,8 +128,8 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
         mbedtls_pk_get_type((mbedtls_pk_context *)pk) == MBEDTLS_PK_ECKEY_DH) {
         const mbedtls_ecp_keypair *ec = mbedtls_pk_ec(*pk);
         mbedtls_ecp_curve_type ctype;
-        mbedtls_ecp_group grp;
-        mbedtls_ecp_point q;
+        const mbedtls_ecp_group *grp;
+        const mbedtls_ecp_point *q;
 
         size_t p_len = 0;
         size_t a_len = 0;
@@ -144,20 +144,15 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
         size_t written_len = 0;
         static const uint8_t f_buf[1] = {1};
 
-        mbedtls_ecp_group_init(&grp);
-        mbedtls_ecp_point_init(&q);
-
-        if (mbedtls_ecp_export(ec, &grp, NULL, &q) != 0) {
-            mbedtls_ecp_group_free(&grp);
-            mbedtls_ecp_point_free(&q);
+        if (ec == NULL) {
             return 0;
         }
-        ctype = mbedtls_ecp_get_type(&grp);
+        grp = &ec->MBEDTLS_PRIVATE(grp);
+        q = &ec->MBEDTLS_PRIVATE(Q);
+        ctype = mbedtls_ecp_get_type(grp);
         if (ctype == MBEDTLS_ECP_TYPE_SHORT_WEIERSTRASS) {
-            q_len = 1u + 2u * ((grp.pbits + 7u) / 8u);
+            q_len = 1u + 2u * ((grp->pbits + 7u) / 8u);
             if (q_len == 0 || q_len > UINT16_MAX) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
                 return 0;
             }
 
@@ -168,15 +163,24 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
                  || ctype == MBEDTLS_ECP_TYPE_EDWARDS
 #endif
                  ) {
-            size_t coord_len = (grp.pbits + 7) / 8;
-            p_len = coord_len;
-            dh_q_len = (grp.nbits + 7) / 8;
+            size_t coord_len = (grp->pbits + 7) / 8;
+#if defined(MBEDTLS_EDDSA_C)
+            if (ctype == MBEDTLS_ECP_TYPE_EDWARDS) {
+                const mbedtls_ecp_curve_info *curve = mbedtls_ecp_curve_info_from_grp_id(grp->id);
+                if (curve != NULL) {
+                    coord_len = (curve->bit_size + 7u) / 8u;
+                }
+            }
+#endif
+            /* The Ed448 field prime is 448 bits (56 bytes), while its
+             * compressed points are 57 bytes. Do not use the encoded-point
+             * width for P: CVC consumers use P to select the curve. */
+            p_len = (grp->pbits + 7u) / 8u;
+            dh_q_len = (grp->nbits + 7) / 8;
             dh_g_len = coord_len;
             dh_y_len = coord_len;
             if (p_len == 0 || dh_q_len == 0 || dh_g_len == 0 || dh_y_len == 0 ||
                 p_len > UINT16_MAX || dh_q_len > UINT16_MAX || dh_g_len > UINT16_MAX || dh_y_len > UINT16_MAX) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
                 return 0;
             }
             data_len = (uint16_t)(oid_tlv_len
@@ -186,22 +190,18 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
                                   + cvc_tlv_len_tag(CVC_TAG_EC_G, (uint16_t)dh_y_len));
         }
         else {
-            mbedtls_ecp_group_free(&grp);
-            mbedtls_ecp_point_free(&q);
             return 0;
         }
 
         if (include_ec_domain_parameters && ctype == MBEDTLS_ECP_TYPE_SHORT_WEIERSTRASS) {
-            size_t field_len = (grp.pbits + 7u) / 8u;
-            p_len = mbedtls_mpi_size(&grp.P);
-            a_len = mbedtls_mpi_size(&grp.A);
-            b_len = mbedtls_mpi_size(&grp.B);
-            r_len = mbedtls_mpi_size(&grp.N);
-            g_len = 1u + 2u * ((grp.pbits + 7u) / 8u);
+            size_t field_len = (grp->pbits + 7u) / 8u;
+            p_len = mbedtls_mpi_size(&grp->P);
+            a_len = mbedtls_mpi_size(&grp->A);
+            b_len = mbedtls_mpi_size(&grp->B);
+            r_len = mbedtls_mpi_size(&grp->N);
+            g_len = 1u + 2u * ((grp->pbits + 7u) / 8u);
 
             if (p_len == 0 || b_len == 0 || r_len == 0 || g_len == 0) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
                 return 0;
             }
 
@@ -227,13 +227,9 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
 
         total_len = cvc_tlv_len_tag(CVC_TAG_PUBKEY, data_len);
         if (!out || !out_cap) {
-            mbedtls_ecp_group_free(&grp);
-            mbedtls_ecp_point_free(&q);
             return total_len;
         }
         if (out_cap < total_len) {
-            mbedtls_ecp_group_free(&grp);
-            mbedtls_ecp_point_free(&q);
             return 0;
         }
 
@@ -249,9 +245,7 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
             include_ec_domain_parameters) {
             p += cvc_tlv_write_tag(CVC_TAG_EC_P, p);
             p += cvc_tlv_write_len((uint16_t)p_len, p);
-            if (mbedtls_mpi_write_binary(&grp.P, p, p_len) != 0) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
+            if (mbedtls_mpi_write_binary(&grp->P, p, p_len) != 0) {
                 return 0;
             }
             p += p_len;
@@ -261,35 +255,27 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
             {
                 mbedtls_mpi a_mod_p;
                 mbedtls_mpi_init(&a_mod_p);
-                if (mbedtls_mpi_mod_mpi(&a_mod_p, &grp.A, &grp.P) != 0) {
+                if (mbedtls_mpi_mod_mpi(&a_mod_p, &grp->A, &grp->P) != 0) {
                     mbedtls_mpi_free(&a_mod_p);
-                    mbedtls_ecp_group_free(&grp);
-                    mbedtls_ecp_point_free(&q);
                     return 0;
                 }
                 if (mbedtls_mpi_cmp_int(&a_mod_p, 0) < 0) {
-                    if (mbedtls_mpi_add_mpi(&a_mod_p, &a_mod_p, &grp.P) != 0) {
+                    if (mbedtls_mpi_add_mpi(&a_mod_p, &a_mod_p, &grp->P) != 0) {
                         mbedtls_mpi_free(&a_mod_p);
-                        mbedtls_ecp_group_free(&grp);
-                        mbedtls_ecp_point_free(&q);
                         return 0;
                     }
                 }
                 /* Some mbedTLS builds expose A=0 for NIST Weierstrass curves with A=-3. */
                 if (mbedtls_mpi_cmp_int(&a_mod_p, 0) == 0 &&
-                    cvc_curve_has_a_minus_3(grp.id)) {
-                    if (mbedtls_mpi_copy(&a_mod_p, &grp.P) != 0 ||
+                    cvc_curve_has_a_minus_3(grp->id)) {
+                    if (mbedtls_mpi_copy(&a_mod_p, &grp->P) != 0 ||
                         mbedtls_mpi_sub_int(&a_mod_p, &a_mod_p, 3) != 0) {
                         mbedtls_mpi_free(&a_mod_p);
-                        mbedtls_ecp_group_free(&grp);
-                        mbedtls_ecp_point_free(&q);
                         return 0;
                     }
                 }
                 if (mbedtls_mpi_write_binary(&a_mod_p, p, a_len) != 0) {
                     mbedtls_mpi_free(&a_mod_p);
-                    mbedtls_ecp_group_free(&grp);
-                    mbedtls_ecp_point_free(&q);
                     return 0;
                 }
                 mbedtls_mpi_free(&a_mod_p);
@@ -298,38 +284,30 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_B, p);
             p += cvc_tlv_write_len((uint16_t)b_len, p);
-            if (mbedtls_mpi_write_binary(&grp.B, p, b_len) != 0) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
+            if (mbedtls_mpi_write_binary(&grp->B, p, b_len) != 0) {
                 return 0;
             }
             p += b_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_G, p);
             p += cvc_tlv_write_len((uint16_t)g_len, p);
-            if (mbedtls_ecp_point_write_binary(&grp, &grp.G, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, g_len) != 0 ||
+            if (mbedtls_ecp_point_write_binary(grp, &grp->G, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, g_len) != 0 ||
                 written_len != g_len) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
                 return 0;
             }
             p += g_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_R, p);
             p += cvc_tlv_write_len((uint16_t)r_len, p);
-            if (mbedtls_mpi_write_binary(&grp.N, p, r_len) != 0) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
+            if (mbedtls_mpi_write_binary(&grp->N, p, r_len) != 0) {
                 return 0;
             }
             p += r_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_POINT, p);
             p += cvc_tlv_write_len((uint16_t)q_len, p);
-            if (mbedtls_ecp_point_write_binary(&grp, &q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, q_len) != 0 ||
+            if (mbedtls_ecp_point_write_binary(grp, q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, q_len) != 0 ||
                 written_len != q_len) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
                 return 0;
             }
             p += q_len;
@@ -342,10 +320,8 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
         else if (ctype == MBEDTLS_ECP_TYPE_SHORT_WEIERSTRASS) {
             p += cvc_tlv_write_tag(CVC_TAG_EC_POINT, p);
             p += cvc_tlv_write_len((uint16_t)q_len, p);
-            if (mbedtls_ecp_point_write_binary(&grp, &q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, q_len) != 0 ||
+            if (mbedtls_ecp_point_write_binary(grp, q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, q_len) != 0 ||
                 written_len != q_len) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
                 return 0;
             }
             p += q_len;
@@ -353,44 +329,47 @@ uint16_t cvc_build_pubkey_template_ex(const mbedtls_pk_context *pk,
         else {
             p += cvc_tlv_write_tag(CVC_TAG_EC_P, p);
             p += cvc_tlv_write_len((uint16_t)p_len, p);
-            if (mbedtls_mpi_write_binary(&grp.P, p, p_len) != 0) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
+            if (mbedtls_mpi_write_binary(&grp->P, p, p_len) != 0) {
                 return 0;
             }
             p += p_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_A, p);
             p += cvc_tlv_write_len((uint16_t)dh_q_len, p);
-            if (mbedtls_mpi_write_binary(&grp.N, p, dh_q_len) != 0) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
+            if (mbedtls_mpi_write_binary(&grp->N, p, dh_q_len) != 0) {
                 return 0;
             }
             p += dh_q_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_B, p);
             p += cvc_tlv_write_len((uint16_t)dh_g_len, p);
-            if (mbedtls_mpi_write_binary(&grp.G.MBEDTLS_PRIVATE(X), p, dh_g_len) != 0) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
+            if (ctype == MBEDTLS_ECP_TYPE_MONTGOMERY) {
+                /* RFC 7748 encodes the Montgomery base point little-endian. */
+                memset(p, 0, dh_g_len);
+                if (grp->id == MBEDTLS_ECP_DP_CURVE25519) {
+                    p[0] = 9;
+                }
+                else if (grp->id == MBEDTLS_ECP_DP_CURVE448) {
+                    p[0] = 5;
+                }
+                else {
+                    return 0;
+                }
+            }
+            else if (mbedtls_ecp_point_write_binary(grp, &grp->G, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, dh_g_len) != 0 || written_len != dh_g_len) {
                 return 0;
             }
             p += dh_g_len;
 
             p += cvc_tlv_write_tag(CVC_TAG_EC_G, p);
             p += cvc_tlv_write_len((uint16_t)dh_y_len, p);
-            if (mbedtls_ecp_point_write_binary(&grp, &q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, dh_y_len) != 0 ||
+            if (mbedtls_ecp_point_write_binary(grp, q, MBEDTLS_ECP_PF_UNCOMPRESSED, &written_len, p, dh_y_len) != 0 ||
                 written_len != dh_y_len) {
-                mbedtls_ecp_group_free(&grp);
-                mbedtls_ecp_point_free(&q);
                 return 0;
             }
             p += dh_y_len;
         }
 
-        mbedtls_ecp_group_free(&grp);
-        mbedtls_ecp_point_free(&q);
         return (uint16_t)(p - out);
     }
 

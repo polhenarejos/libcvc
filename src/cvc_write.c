@@ -193,6 +193,19 @@ int cvc_write_set_validity(cvc_write_cert *ctx,
     return LIBCVC_OK;
 }
 
+int cvc_write_set_extensions(cvc_write_cert *ctx, const uint8_t *extensions, uint16_t extensions_len) {
+    if (!ctx || (extensions_len != 0 && extensions == NULL) || extensions_len > sizeof(ctx->ext_buf)) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    if (extensions_len != 0) {
+        memcpy(ctx->ext_buf, extensions, extensions_len);
+    }
+    ctx->ext_len = extensions_len;
+    ctx->meta.ext = extensions_len != 0 ? ctx->ext_buf : NULL;
+    ctx->meta.ext_len = extensions_len;
+    return LIBCVC_OK;
+}
+
 int cvc_write_append_extension(cvc_write_cert *ctx,
                                const uint8_t *oid,
                                uint16_t oid_len,
@@ -232,11 +245,27 @@ int cvc_write_append_extension(cvc_write_cert *ctx,
     return LIBCVC_OK;
 }
 
+int cvc_write_set_include_role_and_validity(cvc_write_cert *ctx, bool enable) {
+    if (!ctx) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    ctx->meta.include_role_and_validity = enable;
+    return LIBCVC_OK;
+}
+
 int cvc_write_set_include_ec_domain_parameters(cvc_write_cert *ctx, bool enable) {
     if (!ctx) {
         return LIBCVC_ERR_INVALID_ARG;
     }
     ctx->include_ec_domain_parameters = enable;
+    return LIBCVC_OK;
+}
+
+int cvc_write_set_allow_zero_signature_on_unsupported(cvc_write_cert *ctx, bool enable) {
+    if (!ctx) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    ctx->allow_zero_signature_on_unsupported = enable;
     return LIBCVC_OK;
 }
 
@@ -291,16 +320,26 @@ int cvc_write_cert_der(cvc_write_cert *ctx,
         return LIBCVC_ERR_INVALID_ARG;
     }
 
-    if (cvc_sign_data_mbedtls_pk(ctx->issuer_pk,
-                                 ctx->md_alg,
-                                 body,
-                                 body_len,
-                                 sig,
-                                 sizeof(sig),
-                                 &sig_len,
-                                 f_rng,
-                                 p_rng) != LIBCVC_OK) {
-        return LIBCVC_ERR_CRYPTO;
+    {
+        int sign_rc = cvc_sign_data_mbedtls_pk(ctx->issuer_pk,
+                                                ctx->md_alg,
+                                                body,
+                                                body_len,
+                                                sig,
+                                                sizeof(sig),
+                                                &sig_len,
+                                                f_rng,
+                                                p_rng);
+        if (sign_rc != LIBCVC_OK) {
+            if (!ctx->allow_zero_signature_on_unsupported || sign_rc != LIBCVC_ERR_UNSUPPORTED) {
+                return LIBCVC_ERR_CRYPTO;
+            }
+            sig_len = 2 * mbedtls_pk_get_len(ctx->issuer_pk);
+            if (sig_len == 0 || sig_len > sizeof(sig)) {
+                return LIBCVC_ERR_CRYPTO;
+            }
+            memset(sig, 0, sig_len);
+        }
     }
 
     *out_len = cvc_build_cert(body, body_len, sig, (uint16_t)sig_len, out, out_cap);

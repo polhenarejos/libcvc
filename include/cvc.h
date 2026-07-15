@@ -114,6 +114,15 @@ int cvc_oid_from_dotted_string(const char *oid_str,
                                uint16_t out_cap,
                                uint16_t *out_len);
 
+/* CVC algorithm policy helpers.  Returned OID pointers have static lifetime. */
+int cvc_default_algorithm_oid(const mbedtls_pk_context *pk, const uint8_t **oid, uint16_t *oid_len);
+int cvc_algorithm_oid_to_md(const uint8_t *oid, uint16_t oid_len, mbedtls_md_type_t *md_alg);
+bool cvc_algorithm_oid_is_rsa_pss(const uint8_t *oid, uint16_t oid_len);
+
+/* Non-owning PK views. Do not call mbedtls_pk_free() on the returned context. */
+int cvc_pk_wrap_rsa(mbedtls_pk_context *pk, mbedtls_rsa_context *rsa);
+int cvc_pk_wrap_ec(mbedtls_pk_context *pk, mbedtls_ecp_keypair *ec);
+
 /* Build 0x7F49 public key template from mbedtls key context.
  * alg_oid is copied into tag 0x06.
  * Returns total bytes written, 0 on error/insufficient buffer.
@@ -190,6 +199,7 @@ typedef struct {
     uint16_t alg_oid_len;
     mbedtls_md_type_t md_alg;
     bool include_ec_domain_parameters;
+    bool allow_zero_signature_on_unsupported;
     bool strict_profile;
     cvc_domain_params_policy_t domain_params_policy;
 
@@ -220,8 +230,11 @@ int cvc_write_set_car(cvc_write_cert *ctx, const uint8_t *car, uint16_t car_len)
 int cvc_write_set_chr(cvc_write_cert *ctx, const uint8_t *chr, uint16_t chr_len);
 int cvc_write_set_chat(cvc_write_cert *ctx, const uint8_t *chat, uint16_t chat_len);
 int cvc_write_set_validity(cvc_write_cert *ctx, const uint8_t *valid_from, uint16_t valid_from_len, const uint8_t *valid_to, uint16_t valid_to_len);
+int cvc_write_set_extensions(cvc_write_cert *ctx, const uint8_t *extensions, uint16_t extensions_len);
 int cvc_write_append_extension(cvc_write_cert *ctx, const uint8_t *oid, uint16_t oid_len, const uint8_t *ctx_specific_tlvs, uint16_t ctx_specific_tlvs_len);
+int cvc_write_set_include_role_and_validity(cvc_write_cert *ctx, bool enable);
 int cvc_write_set_include_ec_domain_parameters(cvc_write_cert *ctx, bool enable);
+int cvc_write_set_allow_zero_signature_on_unsupported(cvc_write_cert *ctx, bool enable);
 int cvc_write_set_strict_profile(cvc_write_cert *ctx, bool enable);
 int cvc_write_set_domain_params_policy(cvc_write_cert *ctx, cvc_domain_params_policy_t policy);
 int cvc_write_cert_der(cvc_write_cert *ctx, uint8_t *out, uint16_t out_cap, uint16_t *out_len, int (*f_rng)(void *, unsigned char *, size_t), void *p_rng);

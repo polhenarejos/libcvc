@@ -20,6 +20,7 @@
  */
 
 #include "cvc.h"
+#include "cvc_oids.h"
 #include "cvc_tags.h"
 #include "cvc_tlv.h"
 
@@ -31,6 +32,90 @@
 #if defined(MBEDTLS_EDDSA_C)
 #include "mbedtls/eddsa.h"
 #endif
+
+static bool cvc_algorithm_oid_equals(const uint8_t *oid, uint16_t oid_len, const uint8_t *expected, uint16_t expected_len) {
+    return oid != NULL && oid_len == expected_len && memcmp(oid, expected, expected_len) == 0;
+}
+
+int cvc_default_algorithm_oid(const mbedtls_pk_context *pk, const uint8_t **oid, uint16_t *oid_len) {
+    mbedtls_ecp_keypair *ec;
+    mbedtls_ecp_curve_type curve_type;
+
+    if (pk == NULL || oid == NULL || oid_len == NULL) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    if (mbedtls_pk_get_type((mbedtls_pk_context *)pk) == MBEDTLS_PK_RSA) {
+        *oid = (const uint8_t *)OID_ID_TA_RSA_V1_5_SHA_256;
+        *oid_len = (uint16_t)(sizeof(OID_ID_TA_RSA_V1_5_SHA_256) - 1u);
+        return LIBCVC_OK;
+    }
+    ec = mbedtls_pk_ec(*(mbedtls_pk_context *)pk);
+    if (ec == NULL) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    curve_type = mbedtls_ecp_get_type(&ec->MBEDTLS_PRIVATE(grp));
+    if (curve_type == MBEDTLS_ECP_TYPE_MONTGOMERY
+#if defined(MBEDTLS_EDDSA_C)
+        || curve_type == MBEDTLS_ECP_TYPE_EDWARDS
+#endif
+    ) {
+        *oid = (const uint8_t *)OID_ID_RI_ECDH_SHA_256;
+        *oid_len = (uint16_t)(sizeof(OID_ID_RI_ECDH_SHA_256) - 1u);
+        return LIBCVC_OK;
+    }
+    *oid = (const uint8_t *)OID_ID_TA_ECDSA_SHA_256;
+    *oid_len = (uint16_t)(sizeof(OID_ID_TA_ECDSA_SHA_256) - 1u);
+    return LIBCVC_OK;
+}
+
+int cvc_algorithm_oid_to_md(const uint8_t *oid, uint16_t oid_len, mbedtls_md_type_t *md_alg) {
+    if (oid == NULL || md_alg == NULL) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    if (cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_V1_5_SHA_1, sizeof(OID_ID_TA_RSA_V1_5_SHA_1) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_PSS_SHA_1, sizeof(OID_ID_TA_RSA_PSS_SHA_1) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_ECDSA_SHA_1, sizeof(OID_ID_TA_ECDSA_SHA_1) - 1u)) {
+        *md_alg = MBEDTLS_MD_SHA1;
+    }
+    else if (cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_V1_5_SHA_256, sizeof(OID_ID_TA_RSA_V1_5_SHA_256) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_PSS_SHA_256, sizeof(OID_ID_TA_RSA_PSS_SHA_256) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_ECDSA_SHA_256, sizeof(OID_ID_TA_ECDSA_SHA_256) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_RI_ECDH_SHA_256, sizeof(OID_ID_RI_ECDH_SHA_256) - 1u)) {
+        *md_alg = MBEDTLS_MD_SHA256;
+    }
+    else if (cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_ECDSA_SHA_224, sizeof(OID_ID_TA_ECDSA_SHA_224) - 1u)) {
+        *md_alg = MBEDTLS_MD_SHA224;
+    }
+    else if (cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_ECDSA_SHA_384, sizeof(OID_ID_TA_ECDSA_SHA_384) - 1u)) {
+        *md_alg = MBEDTLS_MD_SHA384;
+    }
+    else if (cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_V1_5_SHA_512, sizeof(OID_ID_TA_RSA_V1_5_SHA_512) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_PSS_SHA_512, sizeof(OID_ID_TA_RSA_PSS_SHA_512) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_ECDSA_SHA_512, sizeof(OID_ID_TA_ECDSA_SHA_512) - 1u)) {
+        *md_alg = MBEDTLS_MD_SHA512;
+    }
+    else {
+        return LIBCVC_ERR_UNSUPPORTED;
+    }
+    return LIBCVC_OK;
+}
+
+bool cvc_algorithm_oid_is_rsa_pss(const uint8_t *oid, uint16_t oid_len) {
+    return cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_PSS_SHA_1, sizeof(OID_ID_TA_RSA_PSS_SHA_1) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_PSS_SHA_256, sizeof(OID_ID_TA_RSA_PSS_SHA_256) - 1u) || cvc_algorithm_oid_equals(oid, oid_len, (const uint8_t *)OID_ID_TA_RSA_PSS_SHA_512, sizeof(OID_ID_TA_RSA_PSS_SHA_512) - 1u);
+}
+
+int cvc_pk_wrap_rsa(mbedtls_pk_context *pk, mbedtls_rsa_context *rsa) {
+    if (pk == NULL || rsa == NULL) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    mbedtls_pk_init(pk);
+    pk->MBEDTLS_PRIVATE(pk_info) = mbedtls_pk_info_from_type(MBEDTLS_PK_RSA);
+    pk->MBEDTLS_PRIVATE(pk_ctx) = rsa;
+    return pk->MBEDTLS_PRIVATE(pk_info) != NULL ? LIBCVC_OK : LIBCVC_ERR_UNSUPPORTED;
+}
+
+int cvc_pk_wrap_ec(mbedtls_pk_context *pk, mbedtls_ecp_keypair *ec) {
+    if (pk == NULL || ec == NULL) {
+        return LIBCVC_ERR_INVALID_ARG;
+    }
+    mbedtls_pk_init(pk);
+    pk->MBEDTLS_PRIVATE(pk_info) = mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY);
+    pk->MBEDTLS_PRIVATE(pk_ctx) = ec;
+    return pk->MBEDTLS_PRIVATE(pk_info) != NULL ? LIBCVC_OK : LIBCVC_ERR_UNSUPPORTED;
+}
 
 static int hash_for_sign(mbedtls_md_type_t md_alg, const uint8_t *data, size_t data_len, uint8_t *hash, size_t *hash_len) {
     const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(md_alg);
